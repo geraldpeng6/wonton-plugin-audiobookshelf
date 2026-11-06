@@ -55,7 +55,7 @@ configs:
 
 x-wonton:
   spec: "0.6"
-  id: org.audiobookshelf.audiobookshelf
+  id: app.audiobookshelf
   version: 0.1.0
   kind: app
   title: { en: Audiobookshelf }
