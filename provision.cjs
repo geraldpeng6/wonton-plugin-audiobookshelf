@@ -133,29 +133,38 @@ async function main() {
   const token = await loginAsRoot()
   const { jwksUrl, logoutUrl } = await discoverIssuer()
 
+  const oidcSettings = {
+    authActiveAuthMethods: ['local', 'openid'],
+    authOpenIDIssuerURL: OIDC.issuer,
+    authOpenIDAuthorizationURL: OIDC.authUrl,
+    authOpenIDTokenURL: OIDC.tokenUrl,
+    authOpenIDUserInfoURL: OIDC.userinfoUrl,
+    authOpenIDJwksURL: jwksUrl,
+    authOpenIDLogoutURL: logoutUrl,
+    authOpenIDClientID: OIDC.clientId,
+    authOpenIDClientSecret: OIDC.clientSecret,
+    authOpenIDTokenSigningAlgorithm: 'RS256',
+    // 登录页自动跳 OIDC；按用户名把 root 账号连到核心用户；不开自动注册（新用户只会是普通用户，角色不对）
+    authOpenIDAutoLaunch: true,
+    authOpenIDAutoRegister: false,
+    authOpenIDMatchExistingBy: 'username',
+    // 核心的组声明是 ["owner"]，而 ABS 的组映射只认 admin/user/guest 字面值，配了反而拒绝登录
+    authOpenIDGroupClaim: '',
+    authOpenIDAdvancedPermsClaim: '',
+    // 上游镜像的网页在 /audiobookshelf 子路径下，回调地址要带上它
+    authOpenIDSubfolderForRedirectURLs: '/audiobookshelf'
+  }
+
+  // ABS 在启动时把 OIDC 客户端（含密钥）缓存在内存里，PATCH 改密钥不会重建（上游 updateAuthSettings 只在
+  // 认证方式增减时重建）。保留数据重装时核心会换新客户端密钥，不重建的话回调拿旧密钥换不到 token。
+  // 所以先经应用自己的接口关掉 openid（unuse，清缓存），再带着新设置开启（use，按当前设置重建）。
   await request('PATCH', `${APP_URL}/api/auth-settings`, {
     headers: { Authorization: `Bearer ${token}` },
-    body: {
-      authActiveAuthMethods: ['local', 'openid'],
-      authOpenIDIssuerURL: OIDC.issuer,
-      authOpenIDAuthorizationURL: OIDC.authUrl,
-      authOpenIDTokenURL: OIDC.tokenUrl,
-      authOpenIDUserInfoURL: OIDC.userinfoUrl,
-      authOpenIDJwksURL: jwksUrl,
-      authOpenIDLogoutURL: logoutUrl,
-      authOpenIDClientID: OIDC.clientId,
-      authOpenIDClientSecret: OIDC.clientSecret,
-      authOpenIDTokenSigningAlgorithm: 'RS256',
-      // 登录页自动跳 OIDC；按用户名把 root 账号连到核心用户；不开自动注册（新用户只会是普通用户，角色不对）
-      authOpenIDAutoLaunch: true,
-      authOpenIDAutoRegister: false,
-      authOpenIDMatchExistingBy: 'username',
-      // 核心的组声明是 ["owner"]，而 ABS 的组映射只认 admin/user/guest 字面值，配了反而拒绝登录
-      authOpenIDGroupClaim: '',
-      authOpenIDAdvancedPermsClaim: '',
-      // 上游镜像的网页在 /audiobookshelf 子路径下，回调地址要带上它
-      authOpenIDSubfolderForRedirectURLs: '/audiobookshelf'
-    }
+    body: { authActiveAuthMethods: ['local'] }
+  })
+  await request('PATCH', `${APP_URL}/api/auth-settings`, {
+    headers: { Authorization: `Bearer ${token}` },
+    body: oidcSettings
   })
   log('OIDC 设置已写入')
 
