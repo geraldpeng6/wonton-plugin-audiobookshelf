@@ -87,13 +87,12 @@ x-wonton:
   webui:
     service: audiobookshelf
     port: 80
-    # 上游镜像的网页和 OIDC 起点都在 /audiobookshelf 子路径下，App 打开网页直接落到它。
-    path: /audiobookshelf
+    # 上游镜像的网页在 /audiobookshelf 子路径下；path 指到 /login（应用的 OIDC 起点，打开即自动跳单点登录）。
+    # ABS 登出固定回 /audiobookshelf/login，核心默认登记的 webui.path 恰好整串对上，不用再声明回跳路径。
+    path: /audiobookshelf/login
     sso: oidc
     oidc:
-      # ABS 网页登录的回调路径；登出固定回 /audiobookshelf/login，让核心把它登记为登出回跳地址。
       redirect_paths: [/audiobookshelf/auth/openid/callback]
-      post_logout_paths: [/audiobookshelf/login]
   secrets:
     # root 账号的密码：provision 建号和每次核对时用，也是应用内本地登录（/login/?autoLaunch=0）的备用入口。
     admin_password:
