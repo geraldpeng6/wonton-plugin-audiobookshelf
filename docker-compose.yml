@@ -1,78 +1,109 @@
-# 示例插件：nginx 显示一个网页，向登录的人问好。改成自己的应用见 https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md#写插件。
+# Audiobookshelf 有声书/播客服务器：有声书放在共享文件夹 audiobooks（只读），网页经核心网关用 OIDC 登录。
+# 上游 GPL-3.0-only，镜像按清单列表（index）的摘要固定（amd64/arm64）。
+#
+# OIDC 的接法：ABS 的认证设置存在自己的数据库里、只能由管理员改（上游无环境变量入口），
+# 所以由一次性 provision 服务配置：空库时用注入的用户名建 root 账号（密码是本插件的核心密钥），
+# 登录后把 OIDC 指向核心的身份提供方。每次创建容器（安装、升级、重建）都会重跑，密钥换了就更新，不是"已存在就跳过"。
 services:
-  web:
-    # 镜像按摘要固定（多架构镜像写清单列表的摘要），标签只给人看。
-    image: nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+  audiobookshelf:
+    image: advplyr/audiobookshelf:2.37.2@sha256:b897c33f05972fb1bf484f7487bc878fa91ec8691335c1db6e2929c3a7658efa
+    # 镜像不依赖 root：以用户身份运行，配置和数据目录由核心按 user 交给 PUID:PGID。
+    user: "${PUID}:${PGID}"
     environment:
-      # 网关代登录：SSI 回显的 Remote-User 只信核心带来的。官方镜像启动时对 templates 目录里的
-      # *.template 做 envsubst，把下面的地址换进 nginx 配置（见 web/default.conf.template）。
-      WONTON_CORE_ADDRESS: ${WONTON_CORE_ADDRESS}
-    # 包里的文件经 configs 交给容器（核心在启动前写进去），不能用卷挂载。
-    configs:
-      - source: site
-        target: /etc/nginx/templates/default.conf.template
-      - source: page
-        target: /usr/share/nginx/html/index.html
-      - source: tokens
-        target: /usr/share/nginx/html/tokens.css
+      # 上游 docker 镜像的网页在 /audiobookshelf 子路径下（构建期定死在客户端 bundle 里，运行时改不了），
+      # webui.path 与回调、登出路径都对齐它；根路径也能打开（上游有前缀中间件）。
+      TZ: ${TZ}
+    volumes:
+      - ${WONTON_APP_DATA}/config:/config
+      - ${WONTON_APP_DATA}/metadata:/metadata
+      # 有声书只读（storage.share.audiobooks:read）；播客由应用按 RSS 下载，存自己的数据目录。
+      - ${WONTON_SHARE_AUDIOBOOKS}:/audiobooks:ro
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/healthcheck"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
-      start_interval: 1s
+      start_period: 60s
+      start_interval: 2s
+
+  # 一次性服务：等主服务健康后配 OIDC（见文件头注释）。脚本只用镜像里自带的 node。
+  provision:
+    image: advplyr/audiobookshelf:2.37.2@sha256:b897c33f05972fb1bf484f7487bc878fa91ec8691335c1db6e2929c3a7658efa
+    user: "${PUID}:${PGID}"
+    entrypoint: ["node", "/app/provision.cjs"]
+    # 变量只用于 compose 插值，容器里要显式写上。
+    environment:
+      APP_URL: http://audiobookshelf:80
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入用户名}
+      WONTON_SECRET_ADMIN_PASSWORD: ${WONTON_SECRET_ADMIN_PASSWORD}
+      WONTON_OIDC_ISSUER: ${WONTON_OIDC_ISSUER}
+      WONTON_OIDC_CLIENT_ID: ${WONTON_OIDC_CLIENT_ID}
+      WONTON_OIDC_CLIENT_SECRET: ${WONTON_OIDC_CLIENT_SECRET}
+      WONTON_OIDC_AUTH_URL: ${WONTON_OIDC_AUTH_URL}
+      WONTON_OIDC_TOKEN_URL: ${WONTON_OIDC_TOKEN_URL}
+      WONTON_OIDC_USERINFO_URL: ${WONTON_OIDC_USERINFO_URL}
+    configs:
+      - source: provision
+        target: /app/provision.cjs
+    depends_on:
+      audiobookshelf:
+        condition: service_healthy
+    restart: "no"
 
 configs:
-  site:
-    file: web/default.conf.template
-  page:
-    file: web/index.html
-  tokens:
-    file: web/tokens.css
+  provision:
+    file: provision.cjs
 
 x-wonton:
-  spec: "0.5"
-  # 换成你自己的：反向域名形式，装上以后不能改。
-  id: app.example.hello
-  version: 0.1.1
+  spec: "0.6"
+  id: app.audiobookshelf
+  version: 0.1.0
   kind: app
-  title: { zh: 你好, en: Hello }
-  description: { zh: 向登录的人问好的示例网页, en: An example page that greets whoever is signed in }
-  icon: icon.svg
+  title: { en: Audiobookshelf }
+  description: { zh: 把共享文件夹里的有声书变成你和家人随处可听的播客级书架, en: Turn the audiobooks in your shared folder into a self-hosted library you can stream anywhere }
+  icon: icon.png
   notices: [NOTICE]
-  screenshots: [screenshots/home.png]
-  author: { name: Example }
-  homepage: https://nginx.org
-  # 应用（这里是 nginx）的许可证；插件包自己的许可证写在仓库的 LICENSE 里。
-  license: BSD-2-Clause
+  screenshots: [screenshots/library.png, screenshots/book.png, screenshots/player.png]
+  author: { name: geraldpeng6 }
+  homepage: https://www.audiobookshelf.org
+  # 应用（audiobookshelf）的许可证；插件包自己的许可证写在仓库的 LICENSE 里。
+  license: GPL-3.0-only
   tags:
-    zh: [工具]
-    en: [Tools]
+    zh: [有声书, 播客, 阅读]
+    en: [Audiobooks, Podcasts, Reading]
   about:
     zh: |
-      一个示例网页：登录以后，页面会向你问好。新建插件时可以照着改。
+      把共享文件夹 audiobooks 里的有声书整理成自己的书架：按书名、作者和系列浏览，播放进度在手机和网页之间同步。
+
+      打开就是你的账号，不用再登录一次。有声书文件只读，不会被改动；播客由应用按 RSS 订阅下载，存在应用自己的数据目录里。
+
+      第一次打开会引导你建一个有声书库，目录选 /audiobooks 就能扫到共享文件夹里的书。
     en: |
-      An example page: once you are signed in, the page says hello. Copy it as a starting point for a new plugin.
-  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
+      Turn the audiobooks in your shared folder into your own library: browse by title, author and series, and keep playback progress in sync between your phone and the web.
+
+      Opening the page is enough, there is no second login. Audiobook files are read-only and never modified. Podcasts are downloaded from RSS inside the app and stored in the plugin's own data directory.
+
+      On first open the app walks you through creating a library; pick /audiobooks to scan the shared folder.
+  release_notes: { zh: 首个版本。, en: Initial release. }
   webui:
-    service: web
+    service: audiobookshelf
     port: 80
-    # 示例页回显网关注入的用户名，见 https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#网关代登录sso-proxy。
-    sso: proxy
-    proxy:
-      headers:
-        Remote-User: "{user}"
-  # 能放到底栏的页面，见 https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#底栏页面tabs。放不放由用户决定。
-  tabs:
-    - id: home
-      title: { zh: 主页, en: Home }
-      icon: tabs/home.svg
-      icon_selected: tabs/home-fill.svg
-      path: /
-      # 这个页面没做适配，用默认的 inset：页面夹在 App 的栏中间，不会被挡。
-      # 想让内容从栏下滚过，写 layout: edge-to-edge，并用 --wonton-inset-* 留出栏的位置。
-  permissions: []
-  # 上游 nginx 官方镜像，amd64 和 arm64 都有；上游没写最低内存，按本机空闲实测取整（实测约 24M，取 64M）。
+    # 上游镜像的网页在 /audiobookshelf 子路径下；path 指到 /login（应用的 OIDC 起点，打开即自动跳单点登录）。
+    # ABS 登出固定回 /audiobookshelf/login，核心默认登记的 webui.path 恰好整串对上，不用再声明回跳路径。
+    path: /audiobookshelf/login
+    sso: oidc
+    oidc:
+      redirect_paths: [/audiobookshelf/auth/openid/callback]
+  secrets:
+    # root 账号的密码：provision 建号和每次核对时用，也是应用内本地登录（/login/?autoLaunch=0）的备用入口。
+    admin_password:
+      generate: { bytes: 32 }
+  permissions:
+    # 知道用户名：root 账号按注入的用户名建，OIDC 按用户名把核心用户连到它。
+    - owner.identity
+    - storage.share.audiobooks:read
+    # 播客 RSS 下载和元数据匹配（封面、简介）要访问外网；OIDC 的身份提供方地址在核心的 NO_PROXY 里，不走代理。
+    - network.egress
+  # 上游没写最低内存；本机实测（单容器、4 本书空库播放中）约 31M，真实书库扫描和匹配更重，取 256M。
   requirements:
     arch: [amd64, arm64]
-    memory: 64M
+    memory: 256M

@@ -1,31 +1,51 @@
-# 云吞插件模板
+# 云吞插件：Audiobookshelf
 
 开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
 
-这是一个能安装的示例插件 `app.example.hello`：使用 nginx 官方镜像显示问候页，经网关的 `sso: proxy` 注入用户名，页面显示“你好，<用户名>”。示例没有应用账号、持久化数据或 MCP 工具。
+把共享文件夹 `audiobooks` 里的有声书做成自己的书架，播放进度在手机和网页之间同步。网页登录走核心的身份提供方
+（`sso: oidc`），打开就是自己的管理员账号，不用再登录一次。
 
-## 示例文件
+## 插件行为
+
+- 登录：Audiobookshelf 的认证设置存在应用自己的数据库里、只能由管理员改（上游没有环境变量入口），所以由一次性
+  `provision` 服务配置：空库时用注入的用户名建 root 账号（密码是核心密钥 `admin_password`），本地登录后
+  `PATCH /api/auth-settings` 把 OIDC 指到核心的身份提供方。每次创建容器（安装、升级、重建）都会重跑，OIDC
+  客户端密钥换了就覆盖写最新的。登录用"按用户名匹配已有用户"把 root 账号连到核心用户，不开自动注册
+  （自动注册建出来的是普通用户，角色不对）。
+- 应用内保留本地登录作为备用入口：`/login/?autoLaunch=0`，账号是注入的用户名，密码是插件详情里 `admin_password`
+  密钥的值。OIDC 万一配错，用它还能进去（上游文档的建议）。
+- 有声书目录只读（`storage.share.audiobooks:read`），应用不会被改动文件；播客由应用按 RSS 订阅下载，存在应用
+  自己的数据目录（`/metadata`）里。第一次打开时在应用里建书库，目录选 `/audiobooks` 就能扫到共享文件夹。
+- 申请了 `network.egress`：播客 RSS 下载和元数据匹配（封面、简介）需要访问外网，经云吞的出网代理走；
+  应用内直接监听局域网的功能没有开（没有 `lan.ports`），所有网页访问都经核心网关。
+
+## 先跑起来
+
+```bash
+scripts/dev.sh up
+scripts/dev.sh install
+```
+
+`up` 在本机起一套云吞并打印它的地址，用 `scripts/dev.sh token` 输出的用户令牌登录；`install` 列出插件要的权限，确认后
+装上并打印插件网页的地址，打开就是用户自己的书架。
+
+## 仓库里有什么
 
 | 路径 | 内容 |
 | --- | --- |
-| `docker-compose.yml` | 示例清单、nginx 服务和三个 `configs` |
-| `web/default.conf.template` | nginx 配置，启用 SSI 回显用户名并提供健康检查入口；只放行来自核心地址（`${WONTON_CORE_ADDRESS}`）的请求，其余来源 403 |
-| `web/index.html` | 问候页 |
-| `web/tokens.css` | 页面主题变量的后备值 |
-| `tabs/` | 示例主页的底栏图标 |
-| `screenshots/home.png` | 商店详情页的示例截图 |
-| `scripts/smoke-probes.sh` | 检查真实页面和网关注入身份的插件探针 |
+| `docker-compose.yml` | 插件本身：compose 加上 `x-wonton` 清单 |
+| `provision.cjs` | 一次性 `provision` 服务的脚本：建管理员、配置 OIDC |
+| `icon.png` | 插件图标 |
+| `screenshots/` | 商店详情页里的截图 |
+| `scripts/check.sh` | 检查插件包，规则和安装时一样 |
+| `scripts/dev.sh` | 开发环境：起一套云吞，装、重装、卸载插件，看日志 |
+| `scripts/publish.sh` | 发布一个版本：打 tag、推送（只用上游镜像，无自建镜像） |
+| `scripts/smoke-probes.sh` | 冒烟的网页、身份、数据探测 |
+| `AGENTS.md` | 给人和 AI 编程代理的规则 |
+| `LICENSE`、`NOTICE` | 插件许可证、上游 GPL-3.0 许可证和商标声明 |
 
-从模板创建自己的插件后，替换示例清单、网页和素材；具体步骤见[写插件](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md#写插件)。
+## 图标来源与授权
 
-## 更新开发套件
-
-```bash
-scripts/dev.sh kit-update
-```
-
-在从模板新建的插件仓库中更新套件；本仓库是套件源头，执行时只提示并退出。版本、可选引用和自定义脚本约定见[开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md#更新开发套件)。
-
-## 图标
-
-`icon.svg` 是本仓库原创线条图标，按本仓库 MIT 许可证分发，见 [NOTICE](NOTICE)。
+`icon.png` 使用 Audiobookshelf 官方标志（`client/static/Logo.png`，原样放在白色底上），未用图片模型生成；来源、
+版权、处理方式、上游 GPL-3.0 全文和商标说明见 [NOTICE](NOTICE)。Audiobookshelf 名称和标志是 Audiobookshelf
+项目的商标；本插件是独立维护的云吞插件包，不代表上游官方出品、合作或背书。
