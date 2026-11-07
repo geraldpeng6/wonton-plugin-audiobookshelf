@@ -36,6 +36,9 @@ function log(message) {
   console.log(`[provision] ${message}`)
 }
 
+// 不再重试的失败（如登录 401：密码对不上，重试只会耗登录限流名额）
+class FatalError extends Error {}
+
 async function request(method, url, { body, headers = {}, allowStatus = [] } = {}) {
   const response = await fetch(url, {
     method,
@@ -95,7 +98,7 @@ async function loginAsRoot() {
         allowStatus: [401]
       })
       if (response.status === 401) {
-        throw new Error(
+        throw new FatalError(
           `管理员账号登录不了（401）：数据目录里已有 root 账号但密码不是本插件的密钥。` +
             `保留数据时不要在应用里改 "${OWNER}" 的密码；删掉插件数据重装可以恢复。`
         )
@@ -105,6 +108,7 @@ async function loginAsRoot() {
       if (!token) throw new Error('登录响应里没有 accessToken')
       return token
     } catch (error) {
+      if (error instanceof FatalError) throw error
       lastError = error
       if (attempt < 3) {
         log(`登录第 ${attempt} 次失败，重试：${error.message}`)
