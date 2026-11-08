@@ -16,6 +16,10 @@
   密钥的值。OIDC 万一配错，用它还能进去（上游文档的建议）。
 - 有声书目录只读（`storage.share.audiobooks:read`），应用不会被改动文件；播客由应用按 RSS 订阅下载，存在应用
   自己的数据目录（`/metadata`）里。第一次打开时在应用里建书库，目录选 `/audiobooks` 就能扫到共享文件夹。
+- 发信：provision 把应用的发信服务器（Server Settings → Email）接到核心的内部 SMTP（`smtp.wonton.internal:25`，不认证
+  不加密），只在应用还没配过时写一次（注入的地址不会变，主人自己改过发信设置就不覆盖）。应用发的信出现在收件人的
+  Wonton 私聊里，设置页的「发送测试邮件」寄到主人自己的内部邮箱；收件人是外部地址（「发送到阅读器」填的 Kindle 邮箱）
+  时核心在 SMTP 阶段就拒收，应用报发送失败。
 - 申请了 `network.egress`：播客 RSS 下载和元数据匹配（封面、简介）需要访问外网，经云吞的出网代理走；
   应用内直接监听局域网的功能没有开（没有 `lan.ports`），所有网页访问都经核心网关。
 
@@ -36,7 +40,7 @@ scripts/dev.sh install
 | 路径 | 内容 |
 | --- | --- |
 | `docker-compose.yml` | 插件本身：compose 加上 `x-wonton` 清单 |
-| `provision.cjs` | 一次性 `provision` 服务的脚本：建管理员、配置 OIDC |
+| `provision.cjs` | 一次性 `provision` 服务的脚本：建管理员、配置 OIDC 和发信服务器 |
 | `icon.png` | 插件图标 |
 | `screenshots/` | 商店详情页里的截图 |
 | `scripts/check.sh` | 检查插件包，规则和安装时一样 |
