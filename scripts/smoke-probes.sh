@@ -19,8 +19,21 @@ _qparam() { # <url> <名字>：取查询参数
   python3 -c 'import sys,urllib.parse;print((urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query).get(sys.argv[2]) or [""])[0])' "$1" "$2"
 }
 
+# 核心会话 Cookie：数据钩子跑在套件第一次会话建立之前（升级腿在最前面），自己登录（网关只认核心会话）。
+smoke_core_login() { # <jar> <插件地址>：先拿核心会话 Cookie，再走一次插件首页的登录跳转——
+  # 网关的会话 Cookie 要落在插件主机上，应用的登录链和接口才认（两步都要，少一步后面全是 401）。
+  local base token
+  base="${E2E_BASE:-${SMOKE_BASE:-}}"
+  token="${E2E_TOKEN:-${SMOKE_TOKEN:-}}"
+  [[ -n "$base" && -n "$token" && -n "${2:-}" ]] || { echo "没有核心地址、主人令牌或插件地址"; return 1; }
+  curl -sS --noproxy '*' -o /dev/null -b "$1" -c "$1" \
+    --data-urlencode "token=$token" "$base/_wonton/login" &&
+    curl -sS --noproxy '*' -o /dev/null -L -b "$1" -c "$1" -H 'Accept: text/html' "${2%/}/"
+}
+
 _oidc_login() { # <jar> <网页地址>：走完 OIDC 链；最终落点 URL 里带 ABS 发的 accessToken
   local jar="$1" base="$2" start final
+  smoke_core_login "$jar" "$base" || { echo "核心会话登录不了（$base）"; return 1; }
   # provision 是一次性服务，核心在应用健康后就返回"装好了"，OIDC 可能还差最后几秒；等到跳起来为止
   for _ in $(seq 1 15); do
     start="$(curl -sS --noproxy '*' -o /dev/null -b "$jar" -c "$jar" \
