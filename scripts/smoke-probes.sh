@@ -21,10 +21,15 @@ _qparam() { # <url> <名字>：取查询参数
 
 _oidc_login() { # <jar> <网页地址>：走完 OIDC 链；最终落点 URL 里带 ABS 发的 accessToken
   local jar="$1" base="$2" start final
-  start="$(curl -sS --noproxy '*' -o /dev/null -b "$jar" -c "$jar" \
-    -w '%{redirect_url}' --max-time 30 "$base$BASE_PATH/auth/openid?callback=$BASE_PATH/")" ||
-    { echo "进不了 /auth/openid"; return 1; }
-  [[ -n "$start" ]] || { echo "/auth/openid 没有跳到身份提供方"; return 1; }
+  # provision 是一次性服务，核心在应用健康后就返回"装好了"，OIDC 可能还差最后几秒；等到跳起来为止
+  for _ in $(seq 1 15); do
+    start="$(curl -sS --noproxy '*' -o /dev/null -b "$jar" -c "$jar" \
+      -w '%{redirect_url}' --max-time 30 "$base$BASE_PATH/auth/openid?callback=$BASE_PATH/")" ||
+      { echo "进不了 /auth/openid"; return 1; }
+    [[ -n "$start" ]] && break
+    sleep 2
+  done
+  [[ -n "$start" ]] || { echo "/auth/openid 没有跳到身份提供方（等了 30 秒）"; return 1; }
   final="$(curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' \
     -w '%{url_effective}' --max-time 60 "$start")" || { echo "authorize 链失败：$start"; return 1; }
   [[ "$final" == "$base"* ]] || { echo "OIDC 链没有落回插件网页：$final"; return 1; }
