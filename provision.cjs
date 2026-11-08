@@ -130,15 +130,28 @@ async function loginAsRoot() {
 }
 
 async function discoverIssuer() {
-  // ABS 要求显式配置全部端点；JWKS 和登出地址核心没有单独注入，从身份提供方的发现文档取
-  const discoveryUrl = `${OIDC.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`
-  const config = await getJson(discoveryUrl)
-  if (!config.jwks_uri) throw new Error(`发现文档里没有 jwks_uri：${discoveryUrl}`)
-  const algorithms = config.id_token_signing_alg_values_supported || []
-  if (algorithms.length && !algorithms.includes('RS256')) {
-    throw new Error(`身份提供方不支持 RS256 签名（支持：${algorithms.join(', ')}）`)
+  // ABS 要求显式配置全部端点；JWKS 和登出地址核心没有单独注入，从身份提供方的发现文档取。
+  // 冒烟/新装时身份提供方可能比应用晚几秒就绪，这里给出有界的重试，超时照实报错
+  let lastError = null
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      const discoveryUrl = `${OIDC.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`
+      const config = await getJson(discoveryUrl)
+      if (!config.jwks_uri) throw new Error(`发现文档里没有 jwks_uri：${discoveryUrl}`)
+      const algorithms = config.id_token_signing_alg_values_supported || []
+      if (algorithms.length && !algorithms.includes('RS256')) {
+        throw new Error(`身份提供方不支持 RS256 签名（支持：${algorithms.join(', ')}）`)
+      }
+      return { jwksUrl: config.jwks_uri, logoutUrl: config.end_session_endpoint || '' }
+    } catch (error) {
+      lastError = error
+      if (attempt < 10) {
+        log(`身份提供方发现文档第 ${attempt} 次没取到，重试：${error.message}`)
+        await new Promise((resolve) => setTimeout(resolve, 3000))
+      }
+    }
   }
-  return { jwksUrl: config.jwks_uri, logoutUrl: config.end_session_endpoint || '' }
+  throw lastError
 }
 
 async function configureEmailSettings(token) {
