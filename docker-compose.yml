@@ -77,12 +77,16 @@ x-wonton:
       打开就是你的账号，不用再登录一次。有声书文件只读，不会被改动；播客由应用按 RSS 订阅下载，存在应用自己的数据目录里。
 
       第一次打开会引导你建一个有声书库，目录选 /audiobooks 就能扫到共享文件夹里的书。
+
+      核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
     en: |
       Turn the audiobooks in your shared folder into your own library: browse by title, author and series, and keep playback progress in sync between your phone and the web.
 
       Opening the page is enough, there is no second login. Audiobook files are read-only and never modified. Podcasts are downloaded from RSS inside the app and stored in the plugin's own data directory.
 
       On first open the app walks you through creating a library; pick /audiobooks to scan the shared folder.
+
+      After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
   release_notes: { zh: 首个版本。, en: Initial release. }
   webui:
     service: audiobookshelf
