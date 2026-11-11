@@ -25,6 +25,7 @@ jobs:
   check:
     uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@9116b57f931b1383cc8dcca176c3d99bb4d394dd
     with:
-      # pull_request 和 push 触发时没有这个输入，为空，走套件默认。
-      core-image: ${{ inputs.core-image }}
+      # 清单用了 spec 0.11 的 notify（发信变量 WONTON_SMTP_*），套件默认的核心镜像还没有这些能力：
+      # 检查用带内部邮箱的核心构建。手动触发给 inputs.core-image 时以它为准。
+      core-image: ${{ inputs.core-image || 'ghcr.io/wontonapp/wonton-core:main' }}
       upgrade-from: ${{ inputs.upgrade-from }}
