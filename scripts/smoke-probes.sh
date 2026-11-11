@@ -141,10 +141,12 @@ extra_check() { # 内部邮箱端到端：真实测试信进 Mailpit、核心投
     -H "Authorization: Bearer $at" -X POST "$SMOKE_WEB_URL$BASE_PATH/api/emails/test")" ||
     { echo "测试信接口请求失败"; return 1; }
   [[ "$rc" == 200 ]] || { echo "测试信没发出去（HTTP $rc）"; return 1; }
+  # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
   _mp_wait --arg to "$to" --arg from 'app.audiobookshelf@plugins.wonton.internal' \
     '.messages | any(.To[].Address == $to and .From.Address == $from)' ||
     { echo "60 秒内没在内部邮箱看到收件人 $to 的测试信"; return 1; }
   echo "测试信已进内部邮箱（收件人 $to）"
+  # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
   _mp_wait --arg to "$to" '(.messages | map(select(.To[].Address == $to)) | length) == 0' ||
     { echo "测试信一直留在 Mailpit：核心没把它投进收件人的 Wonton 私聊（投完才会删）"; return 1; }
   echo "核心已把测试信投进 $to 的 Wonton 私聊"
@@ -161,6 +163,7 @@ extra_check() { # 内部邮箱端到端：真实测试信进 Mailpit、核心投
     -H "Authorization: Bearer $at" -X POST "$SMOKE_WEB_URL$BASE_PATH/api/emails/test")" || rc=0
   [[ "$rc" != 200 ]] || { echo "外部地址 $to 的测试信竟然发送成功（HTTP 200），550 拒收没生效"; return 1; }
   sleep 10
+  # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
   _mp_wait --arg to 'nobody-smoke@example.com' \
     '.messages | any(.To[].Address == $to)' 1 &&
     { echo "外部地址的信进了 Mailpit（550 拒收没生效）"; return 1; }
