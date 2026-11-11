@@ -1,6 +1,6 @@
 # 云吞插件：Audiobookshelf
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)。
 
 把共享文件夹 `audiobooks` 里的有声书做成自己的书架，播放进度在手机和网页之间同步。网页登录走核心的身份提供方
 （`sso: oidc`），打开就是自己的管理员账号，不用再登录一次。
