@@ -184,7 +184,7 @@ up() {
   check_core_image "$image"
   write_settings
   info "生成密钥和配置（已有的沿用）"
-  docker run --rm --user "$(id -u):$(id -g)" -v "$state:$state" "$image" init "$state" "$domain" >/dev/null
+  docker run --rm --user "$(id -u):$(id -g)" -e WONTON_MATRIX_NAME_MODE="${WONTON_MATRIX_NAME_MODE:-none}" -v "$state:$state" "$image" init "$state" "$domain" >/dev/null
   info "启动核心、身份提供方和 Matrix 服务器（第一次要拉镜像，几分钟）"
   compose up -d --wait --wait-timeout 600 || die "没有在 10 分钟内就绪，看看日志：scripts/dev.sh logs"
   need_env
