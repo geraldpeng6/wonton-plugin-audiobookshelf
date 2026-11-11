@@ -133,8 +133,9 @@ _mp_wait() { # <jq 参数…> [轮数=30]：轮询 Mailpit 信箱直到过滤命
 # 直接断言投递的结果——以主人身份读主人的 Wonton 私聊（通知房间），找这个插件发的信。
 
 _mx_curl() { # <路径> [curl 参数…]：在核心容器的网络栈里调 Tuwunel 的 Matrix 客户端接口（宿主够不着）
+  local path="$1"; shift
   docker run --rm --network "container:wonton-${SMOKE_INSTANCE:?}--core" curlimages/curl:8.23.0 \
-    -sS --noproxy '*' --max-time 30 --fail-with-body "$@" "http://tuwunel.wonton.internal:8008$1" 2>&1
+    -sS --noproxy '*' --max-time 30 --fail-with-body "$@" "http://tuwunel.wonton.internal:8008$path"
 }
 
 _mx_room_mail() { # <插件 id>：以主人身份读主人的 Wonton 私聊，输出这个插件发进来的信（结构化事件数组）
