@@ -112,11 +112,18 @@ _mp_api() { # <路径>：调 Mailpit 的 HTTP API（basic core:<api-password>）
   return 1
 }
 
-_mp_wait() { # <jq 过滤> [轮数=20]：轮询 Mailpit 信箱直到过滤命中
-  local filt="$1" n="${2:-20}" i out
+_mp_wait() { # <jq 参数…> [轮数=20]：轮询 Mailpit 信箱直到过滤命中。参数原样交给 jq（--arg 键 值、过滤串）；
+  # 最后一个参数是纯数字时取作轮数。
+  local -a args=()
+  local n=20 a i out
+  while (($#)); do
+    a="$1"; shift
+    if (($# == 0)) && [[ "$a" =~ ^[0-9]+$ ]]; then n="$a"; else args+=("$a"); fi
+  done
+  ((${#args[@]})) || { echo "mp_wait 没给 jq 过滤"; return 1; }
   for ((i = 0; i < n; i++)); do
     out="$(_mp_api "/api/v1/messages?limit=100")" || { sleep 3; continue; }
-    jq -e "$filt" <<<"$out" >/dev/null 2>&1 && return 0
+    jq -e "${args[@]}" <<<"$out" >/dev/null 2>&1 && return 0
     sleep 3
   done
   return 1
