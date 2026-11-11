@@ -1,11 +1,13 @@
 /*
- * 一次性 provision 服务的脚本：把 Audiobookshelf 的 OIDC 指到核心的身份提供方。
+ * 一次性 provision 服务的脚本：把 Audiobookshelf 的 OIDC 指到核心的身份提供方，发信服务器接到核心的内部邮箱。
  *
- * 为什么要有这个服务：ABS 的认证设置存在自己的 SQLite 里，上游没有环境变量或配置文件的入口，
- * 只能由管理员经 /api/auth-settings 修改（MiscController.updateAuthSettings）。所以：
+ * 为什么要有这个服务：ABS 的认证、发信设置都存在自己的 SQLite 里，上游没有环境变量或配置文件的入口，
+ * 只能由管理员经 API 修改（认证是 MiscController.updateAuthSettings，发信是 EmailController.updateSettings）。所以：
  *   1. 空库时经 POST /init 建以注入用户名命名的 root 账号（密码是插件密钥 WONTON_SECRET_ADMIN_PASSWORD）；
  *   2. 本地登录拿 access token，PATCH /api/auth-settings 写入 OIDC 设置；
- *   3. 每次容器创建（安装、升级、重建）都重跑：核心重建 OIDC 客户端时密钥会换，这里每次覆盖写最新的，
+ *   3. PATCH /api/emails/settings 把发信服务器配成核心的 SMTP。只在应用还没配过时写：注入的地址和端口不会变，
+ *      而主人可能在应用里改发信设置（比如给「发送到阅读器」配自己的服务器投到外部邮箱），每次覆盖会抹掉这些改动；
+ *   4. 每次容器创建（安装、升级、重建）都会重跑：OIDC 客户端的密钥核心会换，这里每次覆盖写最新的，
  *      不是"已存在就跳过"。
  * 登录方式：OIDC 的"按用户名匹配已有用户"把 root 账号和核心用户连起来，主人打开网页就是管理员。
  * 任何一步失败都以非 0 退出，错误写清原因（安装会带着这段日志失败回滚）。
@@ -21,6 +23,14 @@ const OIDC = {
   authUrl: required('WONTON_OIDC_AUTH_URL'),
   tokenUrl: required('WONTON_OIDC_TOKEN_URL'),
   userinfoUrl: required('WONTON_OIDC_USERINFO_URL')
+}
+// 核心的内部 SMTP：明文 25 端口、不认证不加密，信由核心按收件地址转进收件人的 Wonton 私聊，只收家里人的地址。
+const SMTP = {
+  host: required('WONTON_SMTP_HOST'),
+  port: Number(required('WONTON_SMTP_PORT')),
+  fromAddress: required('WONTON_MAIL_FROM'),
+  // 测试信按钮没填测试地址时会寄给发件地址，核心只认家里人，插件自己的地址会被拒收
+  testAddress: required('WONTON_OWNER_EMAIL')
 }
 
 function required(name) {
@@ -120,15 +130,55 @@ async function loginAsRoot() {
 }
 
 async function discoverIssuer() {
-  // ABS 要求显式配置全部端点；JWKS 和登出地址核心没有单独注入，从身份提供方的发现文档取
-  const discoveryUrl = `${OIDC.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`
-  const config = await getJson(discoveryUrl)
-  if (!config.jwks_uri) throw new Error(`发现文档里没有 jwks_uri：${discoveryUrl}`)
-  const algorithms = config.id_token_signing_alg_values_supported || []
-  if (algorithms.length && !algorithms.includes('RS256')) {
-    throw new Error(`身份提供方不支持 RS256 签名（支持：${algorithms.join(', ')}）`)
+  // ABS 要求显式配置全部端点；JWKS 和登出地址核心没有单独注入，从身份提供方的发现文档取。
+  // 冒烟/新装时身份提供方可能比应用晚几秒就绪，这里给出有界的重试，超时照实报错
+  let lastError = null
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      const discoveryUrl = `${OIDC.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`
+      const config = await getJson(discoveryUrl)
+      if (!config.jwks_uri) throw new Error(`发现文档里没有 jwks_uri：${discoveryUrl}`)
+      const algorithms = config.id_token_signing_alg_values_supported || []
+      if (algorithms.length && !algorithms.includes('RS256')) {
+        throw new Error(`身份提供方不支持 RS256 签名（支持：${algorithms.join(', ')}）`)
+      }
+      return { jwksUrl: config.jwks_uri, logoutUrl: config.end_session_endpoint || '' }
+    } catch (error) {
+      lastError = error
+      if (attempt < 10) {
+        log(`身份提供方发现文档第 ${attempt} 次没取到，重试：${error.message}`)
+        await new Promise((resolve) => setTimeout(resolve, 3000))
+      }
+    }
   }
-  return { jwksUrl: config.jwks_uri, logoutUrl: config.end_session_endpoint || '' }
+  throw lastError
+}
+
+async function configureEmailSettings(token) {
+  const headers = { Authorization: `Bearer ${token}` }
+  const { settings } = await getJson(`${APP_URL}/api/emails/settings`, headers)
+  if (settings.host) {
+    log(`应用里已有发信配置（host=${settings.host}:${settings.port}），不覆盖`)
+    return
+  }
+  const response = await request('PATCH', `${APP_URL}/api/emails/settings`, {
+    headers,
+    body: {
+      host: SMTP.host,
+      port: SMTP.port,
+      secure: false,
+      // 不填用户名密码（核心的 SMTP 不需要认证）；显式置空，免得旧数据里的凭据留在设置里
+      user: null,
+      pass: null,
+      fromAddress: SMTP.fromAddress,
+      testAddress: SMTP.testAddress
+    }
+  })
+  const written = (await response.json()).settings
+  if (written.host !== SMTP.host || written.port !== SMTP.port || written.fromAddress !== SMTP.fromAddress) {
+    throw new Error(`发信设置写入后对不上：host=${written.host}:${written.port}，from=${written.fromAddress}`)
+  }
+  log(`发信服务器已配成 ${written.host}:${written.port}（发件地址 ${written.fromAddress}），测试信寄到 ${written.testAddress}`)
 }
 
 async function main() {
@@ -176,7 +226,10 @@ async function main() {
   if (!Array.isArray(status.authMethods) || !status.authMethods.includes('openid')) {
     throw new Error(`写入后 OIDC 没有生效（authMethods：${JSON.stringify(status.authMethods)}）`)
   }
-  log(`完成，authMethods=${status.authMethods.join(',')}`)
+  log(`OIDC 已生效，authMethods=${status.authMethods.join(',')}`)
+
+  await configureEmailSettings(token)
+  log('完成')
 }
 
 main().catch((error) => {
