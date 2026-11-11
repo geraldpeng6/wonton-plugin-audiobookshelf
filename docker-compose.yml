@@ -64,8 +64,8 @@ x-wonton:
   id: app.audiobookshelf
   version: 0.2.0
   kind: app
-  title: { en: Audiobookshelf }
-  description: { zh: 把共享文件夹里的有声书变成你和家人随处可听的播客级书架, en: Turn the audiobooks in your shared folder into a self-hosted library you can stream anywhere }
+  title: { zh: 有声书架（Audiobookshelf）, en: Audiobooks & Podcasts (Audiobookshelf) }
+  description: { zh: 像自家的喜马拉雅：共享文件夹里的有声书排成书架，听到哪记到哪，手机和网页之间接着听，还能订阅播客。适合睡前、通勤听书的人。, en: "Like your own Audible: the audiobooks in your shared folder sit on a shelf that remembers where you stopped, so you can switch between phone and browser — with podcast subscriptions too. Great for bedtime and commutes." }
   icon: icon.png
   notices: [NOTICE]
   screenshots: [screenshots/library.png, screenshots/book.png, screenshots/player.png]
